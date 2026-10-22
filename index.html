@@ -354,8 +354,6 @@
     </div>
 
     <script>
-        const PAGE_VERSION = "v5";
-
         // ---------- On-screen activity log ----------
         const logListEl = document.getElementById('logList');
         const logLines = [];
@@ -410,7 +408,7 @@
             }
         });
 
-        log('Page loaded', 'info', PAGE_VERSION);
+        log('Page loaded', 'info', 'load time ' + new Date().toISOString());
 
         // Set these to your own n8n webhooks.
         const LINK_SUBMIT_URL = "https://n8n.kmonlinesolutions.com/webhook/trackgigs-link-email";
@@ -420,8 +418,6 @@
 
         // Add ?debug=1 to the web app URL to show a live state panel on screen.
         const DEBUG = new URLSearchParams(window.location.search).get('debug') === '1';
-
-        console.log("TrackGigs link page", PAGE_VERSION);
 
         // Guarded because the SDK can fail to load on some networks (proxies, blocked telegram.org).
         let tg = null;
@@ -765,7 +761,6 @@
                 document.querySelector('.container').appendChild(debugEl);
             }
             debugEl.textContent = JSON.stringify({
-                version: PAGE_VERSION,
                 isLinked,
                 chatId: resolveChatId(),
                 value: emailInput.value,
