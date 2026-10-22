@@ -224,75 +224,6 @@
             text-decoration: underline;
         }
 
-        .debug-panel {
-            width: 100%;
-            margin-top: 1rem;
-            padding: 0.75rem;
-            font-family: ui-monospace, Menlo, Consolas, monospace;
-            font-size: 11px;
-            line-height: 1.4;
-            white-space: pre-wrap;
-            word-break: break-all;
-            background: #f1f2f1;
-            border-radius: 8px;
-            color: #333;
-        }
-
-        .log-section {
-            width: 100%;
-            margin-top: 1.5rem;
-            border: 1px solid var(--upwork-medium-gray);
-            border-radius: 8px;
-            overflow: hidden;
-        }
-
-        .log-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 0.5rem 0.75rem;
-            background: #f7f8f7;
-            border-bottom: 1px solid var(--upwork-medium-gray);
-        }
-
-        .log-title {
-            font-size: 0.85rem;
-            font-weight: 600;
-        }
-
-        .log-copy {
-            font-size: 0.8rem;
-            padding: 0.3rem 0.6rem;
-            border: 1px solid var(--upwork-medium-gray);
-            border-radius: 6px;
-            background: var(--upwork-white);
-            color: var(--upwork-dark-gray);
-            cursor: pointer;
-        }
-
-        .log-list {
-            max-height: 280px;
-            overflow-y: auto;
-            padding: 0.5rem 0.75rem;
-            font-family: ui-monospace, Menlo, Consolas, monospace;
-            font-size: 11px;
-            line-height: 1.45;
-            user-select: text;
-            -webkit-user-select: text;
-        }
-
-        .log-row {
-            padding: 2px 0;
-            white-space: pre-wrap;
-            word-break: break-word;
-            border-bottom: 1px dashed #eceeec;
-        }
-
-        .log-ok { color: #0e7812; }
-        .log-error { color: #dc2626; font-weight: 600; }
-        .log-warn { color: #b45309; }
-        .log-info { color: #3f4a3c; }
-
         @keyframes spin {
             to { transform: rotate(360deg); }
         }
@@ -337,14 +268,6 @@
 
         <button id="submit" class="submit-button" disabled>Checking account...</button>
 
-        <div class="log-section">
-            <div class="log-header">
-                <span class="log-title">Activity log</span>
-                <button type="button" id="logCopy" class="log-copy">Copy log</button>
-            </div>
-            <div id="logList" class="log-list" aria-live="polite"></div>
-        </div>
-
         <div class="footer">
             <p>
                 Don't have an account yet?
@@ -354,84 +277,22 @@
     </div>
 
     <script>
-        // ---------- On-screen activity log ----------
-        const logListEl = document.getElementById('logList');
-        const logLines = [];
-
-        // status is one of: ok, error, warn, info
-        function log(step, status, detail) {
-            const time = new Date().toISOString().substring(11, 23);
-            let detailText = '';
-            if (detail !== undefined) {
-                try {
-                    detailText = typeof detail === 'string' ? detail : JSON.stringify(detail);
-                } catch (e) {
-                    detailText = String(detail);
-                }
-            }
-            const line = `${time} [${status.toUpperCase()}] ${step}${detailText ? ': ' + detailText : ''}`;
-            logLines.push(line);
-            if (logListEl) {
-                const row = document.createElement('div');
-                row.className = 'log-row log-' + status;
-                row.textContent = line;
-                logListEl.appendChild(row);
-                logListEl.scrollTop = logListEl.scrollHeight;
-            }
-            (status === 'error' ? console.error : console.log)(line);
-        }
-
-        window.addEventListener('error', e => {
-            log('Uncaught JS error', 'error', `${e.message} (line ${e.lineno})`);
-        });
-        window.addEventListener('unhandledrejection', e => {
-            log('Unhandled promise rejection', 'error', String(e.reason));
-        });
-
-        document.getElementById('logCopy').addEventListener('click', async () => {
-            const text = logLines.join('\n');
-            try {
-                await navigator.clipboard.writeText(text);
-                log('Copy log', 'ok');
-            } catch (e) {
-                const ta = document.createElement('textarea');
-                ta.value = text;
-                document.body.appendChild(ta);
-                ta.select();
-                try {
-                    document.execCommand('copy');
-                    log('Copy log', 'ok', 'used fallback');
-                } catch (e2) {
-                    log('Copy log', 'error', 'clipboard not available, long press the log text to select it');
-                }
-                ta.remove();
-            }
-        });
-
-        log('Page loaded', 'info', 'load time ' + new Date().toISOString());
-
         // Set these to your own n8n webhooks.
         const LINK_SUBMIT_URL = "https://n8n.kmonlinesolutions.com/webhook/trackgigs-link-email";
         // Returns [{ chat_id, email }] if this Telegram user already linked an email, or an empty body / [] if not.
         // Set to null to skip the lookup.
         const LINK_GET_URL = "https://n8n.kmonlinesolutions.com/webhook/trackgigs-get-linked-email";
 
-        // Add ?debug=1 to the web app URL to show a live state panel on screen.
-        const DEBUG = new URLSearchParams(window.location.search).get('debug') === '1';
-
         // Guarded because the SDK can fail to load on some networks (proxies, blocked telegram.org).
         let tg = null;
-        let sdkLoaded = false;
         try {
             if (window.Telegram && window.Telegram.WebApp) {
                 tg = window.Telegram.WebApp;
-                sdkLoaded = true;
                 tg.ready();
                 tg.expand();
             }
         } catch (e) {
             console.warn("Telegram WebApp SDK failed to initialize:", e);
-            log("Telegram SDK init threw an error", "error", String(e));
         }
 
         // Fallback object so tg.showPopup and tg.close never throw if the SDK never loaded.
@@ -460,10 +321,6 @@
             return userData?.id || getChatIdFromUrl();
         }
 
-        log('Telegram SDK present', sdkLoaded ? 'ok' : 'warn', sdkLoaded ? 'window.Telegram.WebApp found' : 'not found, using fallback');
-        log('chat_id from Telegram initData', userData && userData.id ? 'ok' : 'warn', userData && userData.id ? String(userData.id) : 'none');
-        log('chat_id from URL param', getChatIdFromUrl() ? 'ok' : 'warn', getChatIdFromUrl() || 'none');
-        log('Resolved chat_id', resolveChatId() ? 'ok' : 'error', resolveChatId() ? String(resolveChatId()) : 'none, lookup cannot run');
 
         const submitButton = document.getElementById("submit");
         const originalButtonText = "Link account";
@@ -489,17 +346,12 @@
 
         // Make the form usable. Never re-enables anything once the account is linked.
         function enableForm() {
-            if (isLinked) {
-                log('enableForm skipped', 'info', 'account is linked, form stays locked');
-                return;
-            }
-            log('enableForm: form is now editable', 'info');
+            if (isLinked) return;
             emailInput.disabled = false;
             emailInput.readOnly = false;
             emailInput.classList.remove('checking');
             submitButton.disabled = false;
             submitButton.innerHTML = originalButtonText;
-            renderDebug();
         }
 
         function resetButton() {
@@ -509,50 +361,19 @@
         // Linking is one time only. Once an email is linked, show it greyed out and fully disable the form.
         // Both readOnly and disabled are set because some mobile webviews still show a caret on readOnly fields.
         function lockForm(email) {
-            log('lockForm called', 'info', email);
-            try {
-                isLinked = true;
-                emailInput.value = email;
-                log('lockForm: value set in field', 'ok', emailInput.value);
-                emailInput.readOnly = true;
-                emailInput.disabled = true;
-                log('lockForm: readOnly and disabled set', 'ok');
-                emailInput.setAttribute('aria-readonly', 'true');
-                emailInput.setAttribute('tabindex', '-1');
-                emailInput.classList.remove('checking');
-                emailInput.classList.add('locked');
-                log('lockForm: locked class added', 'ok', emailInput.className);
-                emailInput.blur();
-                clearEmailError();
-                submitButton.disabled = true;
-                submitButton.textContent = 'Account linked';
-                log('lockForm: button disabled', 'ok', submitButton.textContent);
-                document.getElementById('linkedNote').hidden = false;
-                log('lockForm: linked note shown', 'ok');
-            } catch (err) {
-                log('lockForm threw an error', 'error', String(err && err.message ? err.message : err));
-            }
-            verifyLockState('right after lockForm');
-            setTimeout(() => verifyLockState('1 second after lockForm'), 1000);
-            renderDebug();
-        }
-
-        // Reads the real DOM state back so we can see whether the lock actually took effect and stayed.
-        function verifyLockState(when) {
-            const cs = window.getComputedStyle(emailInput);
-            const state = {
-                isLinked,
-                readOnly: emailInput.readOnly,
-                disabled: emailInput.disabled,
-                lockedClass: emailInput.classList.contains('locked'),
-                background: cs.backgroundColor,
-                buttonText: submitButton.textContent,
-                buttonDisabled: submitButton.disabled,
-                noteHidden: document.getElementById('linkedNote').hidden
-            };
-            const ok = state.isLinked && state.readOnly && state.disabled && state.lockedClass &&
-                       state.buttonDisabled && !state.noteHidden;
-            log('State check (' + when + ')', ok ? 'ok' : 'error', state);
+            isLinked = true;
+            emailInput.value = email;
+            emailInput.readOnly = true;
+            emailInput.disabled = true;
+            emailInput.setAttribute('aria-readonly', 'true');
+            emailInput.setAttribute('tabindex', '-1');
+            emailInput.classList.remove('checking');
+            emailInput.classList.add('locked');
+            emailInput.blur();
+            clearEmailError();
+            submitButton.disabled = true;
+            submitButton.textContent = 'Account linked';
+            document.getElementById('linkedNote').hidden = false;
         }
 
         emailInput.addEventListener('input', clearEmailError);
@@ -567,56 +388,27 @@
         // The single source of truth for locking. Asks the GET webhook whether this chat_id has a linked email.
         // Returns the linked email string, or null if none. Throws on network or parse errors.
         async function fetchLinkedEmail(chat_id) {
-            if (!LINK_GET_URL) {
-                log('GET lookup skipped', 'warn', 'LINK_GET_URL is not set');
-                return null;
-            }
+            if (!LINK_GET_URL) return null;
 
             const url = `${LINK_GET_URL}?chat_id=${encodeURIComponent(chat_id)}&_=${Date.now()}`;
-            log('GET lookup: sending request', 'info', url);
 
-            let res;
-            try {
-                res = await fetch(url, { cache: 'no-store' });
-            } catch (err) {
-                log('GET lookup: request failed (network or CORS)', 'error', String(err && err.message ? err.message : err));
-                throw err;
-            }
-            log('GET lookup: response received', res.ok ? 'ok' : 'error', 'status ' + res.status);
+            const res = await fetch(url, { cache: 'no-store' });
             if (!res.ok) throw new Error('Lookup failed with status ' + res.status);
 
             // n8n can return an empty body when nothing matches, so read as text first.
             const text = await res.text();
-            log('GET lookup: raw body', 'info', text ? (text.length > 500 ? text.slice(0, 500) + '...' : text) : '(empty)');
-            if (!text || !text.trim()) {
-                log('GET lookup: body is empty', 'warn', 'treated as not linked');
-                return null;
-            }
+            if (!text || !text.trim()) return null;
 
-            let data;
-            try {
-                data = JSON.parse(text);
-                log('GET lookup: JSON parsed', 'ok', Array.isArray(data) ? 'array of ' + data.length : typeof data);
-            } catch (err) {
-                log('GET lookup: JSON parse failed', 'error', String(err && err.message ? err.message : err));
-                throw err;
-            }
+            const data = JSON.parse(text);
 
             // Expected: [] when not linked, or [{ "chat_id": "...", "email": "..." }] when linked.
             // A single object with the same fields is also accepted.
             const record = Array.isArray(data) ? data[0] : data;
-            if (!record) {
-                log('GET lookup: no record in response', 'warn', 'treated as not linked');
-                return null;
-            }
-            log('GET lookup: record picked', 'info', record);
+            if (!record) return null;
 
             const emailOk = typeof record.email === 'string' && record.email.trim() !== '';
-            log('Check: record.email is a non-empty string', emailOk ? 'ok' : 'error', String(record.email));
 
             const idOk = record.chat_id === undefined || String(record.chat_id) === String(chat_id);
-            log('Check: record.chat_id matches page chat_id', idOk ? 'ok' : 'error',
-                'response=' + record.chat_id + ' page=' + chat_id);
 
             if (emailOk && idOk) return record.email.trim();
             return null;
@@ -627,24 +419,18 @@
             try {
                 const email = await fetchLinkedEmail(chat_id);
                 if (email) {
-                    log('Lookup result: linked email found', 'ok', email);
                     lockForm(email);
                 } else {
-                    log('Lookup result: no linked email', 'info', 'enabling form');
                     enableForm();
                 }
             } catch (err) {
-                log('Lookup failed, enabling form', 'error', String(err && err.message ? err.message : err));
+                console.error('Error fetching linked email:', err);
                 enableForm();
             }
         }
 
         submitButton.addEventListener("click", async () => {
-            log('Submit clicked', 'info');
-            if (isLinked) {
-                log('Submit ignored', 'warn', 'account already linked');
-                return;
-            }
+            if (isLinked) return;
             clearEmailError();
 
             const chat_id = resolveChatId();
@@ -671,7 +457,6 @@
                 return;
             }
 
-            log('Validation passed', 'ok', email);
 
             // Lock the input while the request is in flight so it cannot change mid-submit.
             emailInput.readOnly = true;
@@ -684,7 +469,6 @@
             };
 
             try {
-                log('POST: sending request', 'info', JSON.stringify(payload));
                 const response = await fetch(LINK_SUBMIT_URL, {
                     method: "POST",
                     headers: {
@@ -693,23 +477,19 @@
                     body: JSON.stringify(payload),
                 });
 
-                log('POST: response received', response.ok ? 'ok' : 'error', 'status ' + response.status);
                 if (!response.ok) {
                     const errorText = await response.text();
                     throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
                 }
 
                 const result = await response.json();
-                log("POST: response body", "info", result);
 
                 // The POST response never locks the form by itself. Only the GET webhook does.
                 // Failure with a message and no existing link: show it and keep the form editable.
                 const alreadyLinked = !!(result && result.already_linked);
                 const succeeded = !!(result && result.success === true);
 
-                log('POST: evaluated', 'info', { succeeded, alreadyLinked });
                 if (!succeeded && !alreadyLinked) {
-                    log('POST: not successful and not already linked', 'error', result && result.message ? result.message : 'no message');
                     showEmailError(
                         result && result.message
                             ? result.message
@@ -719,10 +499,8 @@
                 }
 
                 // The POST says the link exists (new or already). Confirm with the GET webhook, then lock.
-                log('Confirming link with GET webhook', 'info');
                 const linkedEmail = await fetchLinkedEmail(chat_id);
                 if (!linkedEmail) {
-                    log('GET confirmation returned no email', 'error');
                     showEmailError('We could not confirm the link. Please try again.');
                     return;
                 }
@@ -740,7 +518,7 @@
                 }
 
             } catch (error) {
-                log("Submit failed", "error", String(error && error.message ? error.message : error));
+                console.error('Error submitting data:', error);
                 tg.showPopup({
                     title: 'Error',
                     message: 'Could not link your account. Please check your connection and try again.',
@@ -751,36 +529,11 @@
             }
         });
 
-        // Optional on-screen debug panel (add ?debug=1 to the URL).
-        let debugEl = null;
-        function renderDebug() {
-            if (!DEBUG) return;
-            if (!debugEl) {
-                debugEl = document.createElement('div');
-                debugEl.className = 'debug-panel';
-                document.querySelector('.container').appendChild(debugEl);
-            }
-            debugEl.textContent = JSON.stringify({
-                isLinked,
-                chatId: resolveChatId(),
-                value: emailInput.value,
-                readOnly: emailInput.readOnly,
-                disabled: emailInput.disabled,
-                classes: emailInput.className,
-                button: submitButton.textContent,
-                buttonDisabled: submitButton.disabled
-            }, null, 1);
-        }
-
         document.addEventListener('DOMContentLoaded', () => {
-            log('DOMContentLoaded fired', 'info');
-            renderDebug();
             const chat_id = resolveChatId();
             if (chat_id) {
-                log('Starting GET lookup for chat_id', 'info', String(chat_id));
                 loadLinkedEmail(chat_id);
             } else {
-                log("No chat_id found, skipping lookup", "error", "Telegram initData and URL param are both empty");
                 enableForm();
             }
         });
