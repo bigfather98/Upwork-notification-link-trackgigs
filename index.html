@@ -353,9 +353,22 @@
             try {
                 const res = await fetch(`${LINK_GET_URL}?chat_id=${encodeURIComponent(chat_id)}`);
                 if (!res.ok) return;
-                const data = await res.json();
-                if (data && typeof data.email === 'string' && data.email.trim() !== '') {
-                    lockForm(data.email.trim());
+
+                // n8n can return an empty body when nothing matches, so read as text first.
+                const text = await res.text();
+                if (!text || !text.trim()) return;
+                const data = JSON.parse(text);
+
+                // Expected: [] when not linked, or [{ "chat_id": "...", "email": "..." }] when linked.
+                // A single object with the same fields is also accepted.
+                const record = Array.isArray(data) ? data[0] : data;
+                if (
+                    record &&
+                    typeof record.email === 'string' &&
+                    record.email.trim() !== '' &&
+                    (record.chat_id === undefined || String(record.chat_id) === String(chat_id))
+                ) {
+                    lockForm(record.email.trim());
                 }
             } catch (err) {
                 console.error("Error fetching linked email:", err);
