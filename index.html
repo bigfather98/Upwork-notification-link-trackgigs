@@ -291,7 +291,7 @@
     </div>
 
     <script>
-        const PAGE_VERSION = "v3";
+        const PAGE_VERSION = "v4";
 
         // Set these to your own n8n webhooks.
         const LINK_SUBMIT_URL = "https://n8n.kmonlinesolutions.com/webhook/trackgigs-link-email";
@@ -408,45 +408,47 @@
             }
         });
 
-        // Check whether this Telegram user has already linked an email.
-        // Always ends by either locking the form or enabling it.
-        async function loadLinkedEmail(chat_id) {
-            if (!LINK_GET_URL) {
-                enableForm();
-                return;
+        // The single source of truth for locking. Asks the GET webhook whether this chat_id has a linked email.
+        // Returns the linked email string, or null if none. Throws on network or parse errors.
+        async function fetchLinkedEmail(chat_id) {
+            if (!LINK_GET_URL) return null;
+
+            const res = await fetch(
+                `${LINK_GET_URL}?chat_id=${encodeURIComponent(chat_id)}&_=${Date.now()}`,
+                { cache: 'no-store' }
+            );
+            console.log("lookup status", res.status);
+            if (!res.ok) throw new Error(`Lookup failed with status ${res.status}`);
+
+            // n8n can return an empty body when nothing matches, so read as text first.
+            const text = await res.text();
+            console.log("lookup body", text);
+            if (!text || !text.trim()) return null;
+
+            const data = JSON.parse(text);
+
+            // Expected: [] when not linked, or [{ "chat_id": "...", "email": "..." }] when linked.
+            // A single object with the same fields is also accepted.
+            const record = Array.isArray(data) ? data[0] : data;
+            if (
+                record &&
+                typeof record.email === 'string' &&
+                record.email.trim() !== '' &&
+                (record.chat_id === undefined || String(record.chat_id) === String(chat_id))
+            ) {
+                return record.email.trim();
             }
+            console.log("lookup record did not match", record, "page chat_id:", chat_id);
+            return null;
+        }
+
+        // Page load: lock the form only if the GET webhook reports a linked email.
+        async function loadLinkedEmail(chat_id) {
             try {
-                const res = await fetch(
-                    `${LINK_GET_URL}?chat_id=${encodeURIComponent(chat_id)}&_=${Date.now()}`,
-                    { cache: 'no-store' }
-                );
-                console.log("lookup status", res.status);
-                if (!res.ok) {
-                    enableForm();
-                    return;
-                }
-
-                // n8n can return an empty body when nothing matches, so read as text first.
-                const text = await res.text();
-                console.log("lookup body", text);
-                if (!text || !text.trim()) {
-                    enableForm();
-                    return;
-                }
-                const data = JSON.parse(text);
-
-                // Expected: [] when not linked, or [{ "chat_id": "...", "email": "..." }] when linked.
-                // A single object with the same fields is also accepted.
-                const record = Array.isArray(data) ? data[0] : data;
-                if (
-                    record &&
-                    typeof record.email === 'string' &&
-                    record.email.trim() !== '' &&
-                    (record.chat_id === undefined || String(record.chat_id) === String(chat_id))
-                ) {
-                    lockForm(record.email.trim());
+                const email = await fetchLinkedEmail(chat_id);
+                if (email) {
+                    lockForm(email);
                 } else {
-                    console.log("lookup record did not match", record, "page chat_id:", chat_id);
                     enableForm();
                 }
             } catch (err) {
@@ -510,32 +512,38 @@
                 const result = await response.json();
                 console.log("Success:", result);
 
-                if (result && result.success === false) {
-                    // The server says this Telegram account is already linked: lock the form
-                    // and show the email that is on file.
-                    if (result.already_linked && typeof result.email === 'string' && result.email.trim() !== '') {
-                        lockForm(result.email.trim());
-                        return;
-                    }
-                    showEmailError(result.message || 'We could not find a TrackGigs account with that email.');
+                // The POST response never locks the form by itself. Only the GET webhook does.
+                // Failure with a message and no existing link: show it and keep the form editable.
+                const alreadyLinked = !!(result && result.already_linked);
+                const succeeded = !!(result && result.success === true);
+
+                if (!succeeded && !alreadyLinked) {
+                    showEmailError(
+                        result && result.message
+                            ? result.message
+                            : 'We could not find a TrackGigs account with that email.'
+                    );
                     return;
                 }
 
-                // Require an explicit success. Anything else is treated as a failure.
-                if (!result || result.success !== true) {
-                    showEmailError(result && result.message ? result.message : 'Something went wrong. Please try again.');
+                // The POST says the link exists (new or already). Confirm with the GET webhook, then lock.
+                const linkedEmail = await fetchLinkedEmail(chat_id);
+                if (!linkedEmail) {
+                    showEmailError('We could not confirm the link. Please try again.');
                     return;
                 }
 
-                lockForm(email);
+                lockForm(linkedEmail);
 
-                tg.showPopup({
-                    title: 'Account linked',
-                    message: 'Your Telegram account is now linked to your TrackGigs account.',
-                    buttons: [{ type: 'ok' }]
-                }, () => {
-                    tg.close();
-                });
+                if (succeeded) {
+                    tg.showPopup({
+                        title: 'Account linked',
+                        message: 'Your Telegram account is now linked to your TrackGigs account.',
+                        buttons: [{ type: 'ok' }]
+                    }, () => {
+                        tg.close();
+                    });
+                }
 
             } catch (error) {
                 console.error("Error submitting data:", error);
