@@ -3,6 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>Link your TrackGigs account</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
@@ -103,8 +106,20 @@
             border-color: var(--error-red);
         }
 
+        /* Checking state while we look up an existing link */
+        .email-input.checking,
+        .email-input.checking:disabled {
+            background-color: #f7f8f7;
+            color: #9aaa97;
+            -webkit-text-fill-color: #9aaa97;
+            cursor: progress;
+            opacity: 1;
+        }
+
+        /* Locked state: the email is already linked and cannot be changed */
         .email-input.locked,
-        .email-input.locked:focus {
+        .email-input.locked:focus,
+        .email-input.locked:disabled {
             background-color: #f1f2f1;
             color: #7a857a;
             border-color: var(--upwork-medium-gray);
@@ -112,6 +127,9 @@
             cursor: not-allowed;
             -webkit-text-fill-color: #7a857a;
             opacity: 1;
+            pointer-events: none;
+            user-select: none;
+            -webkit-user-select: none;
         }
 
         .linked-note {
@@ -147,7 +165,7 @@
             box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
         }
 
-        .submit-button:hover {
+        .submit-button:hover:not(:disabled) {
             background-color: var(--upwork-dark-green);
         }
 
@@ -206,6 +224,20 @@
             text-decoration: underline;
         }
 
+        .debug-panel {
+            width: 100%;
+            margin-top: 1rem;
+            padding: 0.75rem;
+            font-family: ui-monospace, Menlo, Consolas, monospace;
+            font-size: 11px;
+            line-height: 1.4;
+            white-space: pre-wrap;
+            word-break: break-all;
+            background: #f1f2f1;
+            border-radius: 8px;
+            color: #333;
+        }
+
         @keyframes spin {
             to { transform: rotate(360deg); }
         }
@@ -233,13 +265,14 @@
             <input
                 type="email"
                 id="email"
-                class="email-input"
+                class="email-input checking"
                 placeholder="you@example.com"
-                autocomplete="email"
+                autocomplete="off"
                 inputmode="email"
                 autocapitalize="none"
                 spellcheck="false"
                 aria-describedby="emailError"
+                disabled
             >
             <p id="emailError" class="field-error" role="alert"></p>
             <p id="linkedNote" class="linked-note" hidden>
@@ -247,7 +280,7 @@
             </p>
         </div>
 
-        <button id="submit" class="submit-button">Link account</button>
+        <button id="submit" class="submit-button" disabled>Checking account...</button>
 
         <div class="footer">
             <p>
@@ -258,11 +291,18 @@
     </div>
 
     <script>
+        const PAGE_VERSION = "v3";
+
         // Set these to your own n8n webhooks.
         const LINK_SUBMIT_URL = "https://n8n.kmonlinesolutions.com/webhook/trackgigs-link-email";
-        // Optional: returns { email: "..." } if this Telegram user already linked an email.
-        // Set to null to skip prefilling.
+        // Returns [{ chat_id, email }] if this Telegram user already linked an email, or an empty body / [] if not.
+        // Set to null to skip the lookup.
         const LINK_GET_URL = "https://n8n.kmonlinesolutions.com/webhook/trackgigs-get-linked-email";
+
+        // Add ?debug=1 to the web app URL to show a live state panel on screen.
+        const DEBUG = new URLSearchParams(window.location.search).get('debug') === '1';
+
+        console.log("TrackGigs link page", PAGE_VERSION);
 
         // Guarded because the SDK can fail to load on some networks (proxies, blocked telegram.org).
         let tg = null;
@@ -276,7 +316,7 @@
             console.warn("Telegram WebApp SDK failed to initialize:", e);
         }
 
-        // Fallback no-op object so tg.showPopup and tg.close never throw if the SDK never loaded.
+        // Fallback object so tg.showPopup and tg.close never throw if the SDK never loaded.
         if (!tg) {
             tg = {
                 showPopup: (opts, cb) => {
@@ -303,12 +343,14 @@
         }
 
         const submitButton = document.getElementById("submit");
-        const originalButtonText = submitButton.innerHTML;
+        const originalButtonText = "Link account";
         const emailInput = document.getElementById("email");
         const emailError = document.getElementById("emailError");
 
         // Simple format check. The server should still verify the email belongs to a TrackGigs account.
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+        let isLinked = false;
 
         function showEmailError(message) {
             emailError.textContent = message;
@@ -322,10 +364,39 @@
             emailInput.removeAttribute('aria-invalid');
         }
 
-        function resetButton() {
+        // Make the form usable. Never re-enables anything once the account is linked.
+        function enableForm() {
             if (isLinked) return;
+            emailInput.disabled = false;
+            emailInput.readOnly = false;
+            emailInput.classList.remove('checking');
             submitButton.disabled = false;
             submitButton.innerHTML = originalButtonText;
+            renderDebug();
+        }
+
+        function resetButton() {
+            enableForm();
+        }
+
+        // Linking is one time only. Once an email is linked, show it greyed out and fully disable the form.
+        // Both readOnly and disabled are set because some mobile webviews still show a caret on readOnly fields.
+        function lockForm(email) {
+            isLinked = true;
+            emailInput.value = email;
+            emailInput.readOnly = true;
+            emailInput.disabled = true;
+            emailInput.setAttribute('aria-readonly', 'true');
+            emailInput.setAttribute('tabindex', '-1');
+            emailInput.classList.remove('checking');
+            emailInput.classList.add('locked');
+            emailInput.blur();
+            clearEmailError();
+            submitButton.disabled = true;
+            submitButton.textContent = 'Account linked';
+            document.getElementById('linkedNote').hidden = false;
+            console.log("lockForm ran for", email);
+            renderDebug();
         }
 
         emailInput.addEventListener('input', clearEmailError);
@@ -337,32 +408,31 @@
             }
         });
 
-        let isLinked = false;
-
-        // Linking is one time only. Once an email is linked, show it greyed out and disable the form.
-        function lockForm(email) {
-            isLinked = true;
-            emailInput.value = email;
-            emailInput.readOnly = true;
-            emailInput.setAttribute('aria-readonly', 'true');
-            emailInput.classList.add('locked');
-            emailInput.blur();
-            clearEmailError();
-            submitButton.disabled = true;
-            submitButton.textContent = 'Account linked';
-            document.getElementById('linkedNote').hidden = false;
-        }
-
         // Check whether this Telegram user has already linked an email.
+        // Always ends by either locking the form or enabling it.
         async function loadLinkedEmail(chat_id) {
-            if (!LINK_GET_URL) return;
+            if (!LINK_GET_URL) {
+                enableForm();
+                return;
+            }
             try {
-                const res = await fetch(`${LINK_GET_URL}?chat_id=${encodeURIComponent(chat_id)}`);
-                if (!res.ok) return;
+                const res = await fetch(
+                    `${LINK_GET_URL}?chat_id=${encodeURIComponent(chat_id)}&_=${Date.now()}`,
+                    { cache: 'no-store' }
+                );
+                console.log("lookup status", res.status);
+                if (!res.ok) {
+                    enableForm();
+                    return;
+                }
 
                 // n8n can return an empty body when nothing matches, so read as text first.
                 const text = await res.text();
-                if (!text || !text.trim()) return;
+                console.log("lookup body", text);
+                if (!text || !text.trim()) {
+                    enableForm();
+                    return;
+                }
                 const data = JSON.parse(text);
 
                 // Expected: [] when not linked, or [{ "chat_id": "...", "email": "..." }] when linked.
@@ -375,9 +445,13 @@
                     (record.chat_id === undefined || String(record.chat_id) === String(chat_id))
                 ) {
                     lockForm(record.email.trim());
+                } else {
+                    console.log("lookup record did not match", record, "page chat_id:", chat_id);
+                    enableForm();
                 }
             } catch (err) {
                 console.error("Error fetching linked email:", err);
+                enableForm();
             }
         }
 
@@ -409,6 +483,8 @@
                 return;
             }
 
+            // Lock the input while the request is in flight so it cannot change mid-submit.
+            emailInput.readOnly = true;
             submitButton.disabled = true;
             submitButton.innerHTML = '<div class="loading-container"><span class="spinner"></span><span>Linking...</span></div>';
 
@@ -434,16 +510,20 @@
                 const result = await response.json();
                 console.log("Success:", result);
 
-                // Optional: if your workflow returns { success: false, message: "..." }
-                // (for example when no TrackGigs account matches the email), show it here.
                 if (result && result.success === false) {
-                    // If the server says this Telegram account is already linked, lock the form
+                    // The server says this Telegram account is already linked: lock the form
                     // and show the email that is on file.
                     if (result.already_linked && typeof result.email === 'string' && result.email.trim() !== '') {
                         lockForm(result.email.trim());
                         return;
                     }
                     showEmailError(result.message || 'We could not find a TrackGigs account with that email.');
+                    return;
+                }
+
+                // Require an explicit success. Anything else is treated as a failure.
+                if (!result || result.success !== true) {
+                    showEmailError(result && result.message ? result.message : 'Something went wrong. Please try again.');
                     return;
                 }
 
@@ -469,12 +549,36 @@
             }
         });
 
+        // Optional on-screen debug panel (add ?debug=1 to the URL).
+        let debugEl = null;
+        function renderDebug() {
+            if (!DEBUG) return;
+            if (!debugEl) {
+                debugEl = document.createElement('div');
+                debugEl.className = 'debug-panel';
+                document.querySelector('.container').appendChild(debugEl);
+            }
+            debugEl.textContent = JSON.stringify({
+                version: PAGE_VERSION,
+                isLinked,
+                chatId: resolveChatId(),
+                value: emailInput.value,
+                readOnly: emailInput.readOnly,
+                disabled: emailInput.disabled,
+                classes: emailInput.className,
+                button: submitButton.textContent,
+                buttonDisabled: submitButton.disabled
+            }, null, 1);
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
+            renderDebug();
             const chat_id = resolveChatId();
             if (chat_id) {
                 loadLinkedEmail(chat_id);
             } else {
-                console.warn("User ID not found (Telegram initData and URL param both empty), skipping prefill.");
+                console.warn("User ID not found (Telegram initData and URL param both empty), skipping lookup.");
+                enableForm();
             }
         });
     </script>
