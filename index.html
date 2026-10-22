@@ -103,10 +103,12 @@
             border-color: var(--error-red);
         }
 
-        .email-input:disabled {
+        .email-input.locked,
+        .email-input.locked:focus {
             background-color: #f1f2f1;
             color: #7a857a;
             border-color: var(--upwork-medium-gray);
+            box-shadow: none;
             cursor: not-allowed;
             -webkit-text-fill-color: #7a857a;
             opacity: 1;
@@ -341,7 +343,11 @@
         function lockForm(email) {
             isLinked = true;
             emailInput.value = email;
-            emailInput.disabled = true;
+            emailInput.readOnly = true;
+            emailInput.setAttribute('aria-readonly', 'true');
+            emailInput.classList.add('locked');
+            emailInput.blur();
+            clearEmailError();
             submitButton.disabled = true;
             submitButton.textContent = 'Account linked';
             document.getElementById('linkedNote').hidden = false;
