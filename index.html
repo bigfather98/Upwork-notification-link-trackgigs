@@ -103,6 +103,21 @@
             border-color: var(--error-red);
         }
 
+        .email-input:disabled {
+            background-color: #f1f2f1;
+            color: #7a857a;
+            border-color: var(--upwork-medium-gray);
+            cursor: not-allowed;
+            -webkit-text-fill-color: #7a857a;
+            opacity: 1;
+        }
+
+        .linked-note {
+            font-size: 0.85rem;
+            color: var(--upwork-dark-green);
+            margin: 0;
+        }
+
         .email-input::placeholder {
             color: #9aaa97;
         }
@@ -225,6 +240,9 @@
                 aria-describedby="emailError"
             >
             <p id="emailError" class="field-error" role="alert"></p>
+            <p id="linkedNote" class="linked-note" hidden>
+                This Telegram account is already linked. The email cannot be changed. Contact support if you need help.
+            </p>
         </div>
 
         <button id="submit" class="submit-button">Link account</button>
@@ -303,6 +321,7 @@
         }
 
         function resetButton() {
+            if (isLinked) return;
             submitButton.disabled = false;
             submitButton.innerHTML = originalButtonText;
         }
@@ -316,7 +335,19 @@
             }
         });
 
-        // Prefill the email if this Telegram user has already linked one.
+        let isLinked = false;
+
+        // Linking is one time only. Once an email is linked, show it greyed out and disable the form.
+        function lockForm(email) {
+            isLinked = true;
+            emailInput.value = email;
+            emailInput.disabled = true;
+            submitButton.disabled = true;
+            submitButton.textContent = 'Account linked';
+            document.getElementById('linkedNote').hidden = false;
+        }
+
+        // Check whether this Telegram user has already linked an email.
         async function loadLinkedEmail(chat_id) {
             if (!LINK_GET_URL) return;
             try {
@@ -324,7 +355,7 @@
                 if (!res.ok) return;
                 const data = await res.json();
                 if (data && typeof data.email === 'string' && data.email.trim() !== '') {
-                    emailInput.value = data.email.trim();
+                    lockForm(data.email.trim());
                 }
             } catch (err) {
                 console.error("Error fetching linked email:", err);
@@ -332,6 +363,7 @@
         }
 
         submitButton.addEventListener("click", async () => {
+            if (isLinked) return;
             clearEmailError();
 
             const chat_id = resolveChatId();
@@ -386,9 +418,17 @@
                 // Optional: if your workflow returns { success: false, message: "..." }
                 // (for example when no TrackGigs account matches the email), show it here.
                 if (result && result.success === false) {
+                    // If the server says this Telegram account is already linked, lock the form
+                    // and show the email that is on file.
+                    if (result.already_linked && typeof result.email === 'string' && result.email.trim() !== '') {
+                        lockForm(result.email.trim());
+                        return;
+                    }
                     showEmailError(result.message || 'We could not find a TrackGigs account with that email.');
                     return;
                 }
+
+                lockForm(email);
 
                 tg.showPopup({
                     title: 'Account linked',
