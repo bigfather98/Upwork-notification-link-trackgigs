@@ -77,7 +77,6 @@
             width: 100%;
             gap: 0.5rem;
             margin-bottom: 1.5rem;
-            text-align: center;
         }
 
         .email-label {
@@ -94,7 +93,6 @@
             border-radius: var(--input-border-radius);
             color: var(--upwork-dark-gray);
             background-color: var(--upwork-white);
-            text-align: center;
             transition: border-color 0.2s ease;
         }
 
@@ -243,12 +241,13 @@
 
     <div class="container">
         <div class="header">
-            <h2>Link your TrackGigs account</h2>
-            <p>Your plan will carry over to this bot automatically.</p>
+            <h2>Link your account</h2>
+            <p>Enter the email address you use on trackgigs.com.</p>
+            <p>If you already subscribed on the website, this unlocks the same subscription in this bot.</p>
         </div>
 
         <div class="input-group">
-            <label class="email-label" for="email">Enter the email you used on trackgigs.com</label>
+            <label class="email-label" for="email">TrackGigs email address</label>
             <input
                 type="email"
                 id="email"
@@ -271,7 +270,7 @@
 
         <div class="footer">
             <p>
-                New to TrackGigs?
+                Don't have an account yet?
                 <a href="https://trackgigs.com" target="_blank" rel="noopener">Sign up at trackgigs.com</a>
             </p>
         </div>
@@ -483,23 +482,36 @@
                     throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
                 }
 
-                const result = await response.json();
+                // The webhook replies with plain text, for example:
+                //   "Account linked successfully"
+                //   "You are not subscribed to Upwork alerts"
+                //   "Account not found"
+                // JSON like { "success": true, "message": "..." } is also tolerated.
+                const rawText = (await response.text()).trim();
+                let message = rawText.replace(/^"+|"+$/g, '');
+                let jsonSuccess = false;
+                try {
+                    const parsed = JSON.parse(rawText);
+                    if (parsed && typeof parsed === 'object') {
+                        const obj = Array.isArray(parsed) ? parsed[0] : parsed;
+                        if (obj) {
+                            jsonSuccess = obj.success === true;
+                            message = typeof obj.message === 'string' ? obj.message : message;
+                        }
+                    }
+                } catch (e) {
+                    // Not JSON, use the plain text as is.
+                }
 
-                // The POST response never locks the form by itself. Only the GET webhook does.
-                // Failure with a message and no existing link: show it and keep the form editable.
-                const alreadyLinked = !!(result && result.already_linked);
-                const succeeded = !!(result && result.success === true);
+                const succeeded = jsonSuccess || /linked successfully/i.test(message);
 
-                if (!succeeded && !alreadyLinked) {
-                    showEmailError(
-                        result && result.message
-                            ? result.message
-                            : 'We could not find a TrackGigs account with that email.'
-                    );
+                // The reply text alone never locks the form. Only the GET webhook does.
+                if (!succeeded) {
+                    showEmailError(message || 'We could not link your account. Please try again.');
                     return;
                 }
 
-                // The POST says the link exists (new or already). Confirm with the GET webhook, then lock.
+                // The POST says the account is linked. Confirm with the GET webhook, then lock.
                 const linkedEmail = await fetchLinkedEmail(chat_id);
                 if (!linkedEmail) {
                     showEmailError('We could not confirm the link. Please try again.');
@@ -508,15 +520,13 @@
 
                 lockForm(linkedEmail);
 
-                if (succeeded) {
-                    tg.showPopup({
-                        title: 'Account linked',
-                        message: 'Your Telegram account is now linked to your TrackGigs account.',
-                        buttons: [{ type: 'ok' }]
-                    }, () => {
-                        tg.close();
-                    });
-                }
+                tg.showPopup({
+                    title: 'Account linked',
+                    message: 'Your Telegram account is now linked to your TrackGigs account.',
+                    buttons: [{ type: 'ok' }]
+                }, () => {
+                    tg.close();
+                });
 
             } catch (error) {
                 console.error('Error submitting data:', error);
